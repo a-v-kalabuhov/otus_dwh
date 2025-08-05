@@ -223,7 +223,7 @@ DWH дожно обеспечивать:
 |Регион|STG_REGIONS|DIM_REGIONS|
 |Даты|-|DIM_DATE|
 
-См. схемы в файлах (./STAGE_LAYER.drawio.pdf) и (./CORE_LAYER.drawio.pdf).
+См. схемы в файлах [STAGE_LAYER.drawio.pdf](./STAGE_LAYER.drawio.pdf) и [CORE_LAYER.drawio.pdf](./CORE_LAYER.drawio.pdf).
 
 ### Разложение данных по слоям
 
