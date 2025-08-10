@@ -7,7 +7,7 @@ from airflow.providers.http.operators.http import SimpleHttpOperator
 
 
 @dag(
-    schedule_interval=timedelta(minutes=15),
+    schedule_interval=timedelta(minutes=60),
     start_date=datetime(2025, 1, 1),
     catchup=False,
 )
