@@ -5,6 +5,7 @@
 Результат:
 По [инструкции](https://docs.dagster.io/integrations/libraries/dbt) выполнена настройка ETL с помощью Dagster и DBT.
 Скриншот с результатом материализации ассетов - ![image](./Materialized.jpg).
+Исходный код проекта и devcontainer доступны по [ссылке](https://github.com/a-v-kalabuhov/otus_dwh/tree/main/Homework/15/dg-homework).
 
 Возникшие проблемы:
 Туториал по ссылдке предлагает также выполнить инкрементную загрузку данных.
