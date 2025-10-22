@@ -1,0 +1,53 @@
+-- INIT database
+CREATE TABLE Logs (
+  log_id INT NOT NULL,
+  log_date DATE,
+  user_id INT
+);
+
+INSERT INTO Logs(log_id, log_date, user_id) 
+VALUES (1,'2023-01-01',10), (2,'2023-01-01',12),(3,'2023-01-01',15),(4,'2023-01-03',15),(5,'2023-01-04',15),
+(6,'2023-01-05',10),(7,'2023-01-06',12),(8,'2023-01-06',17),(9,'2023-01-07',18),
+(10,'2023-01-08',15),(11,'2023-01-08',10),(12,'2023-01-09',18),(13,'2023-01-10',19),
+(14,'2023-01-11',13),(15,'2023-01-12',12),(16,'2023-01-12',10),(17,'2023-01-12',15),
+(18,'2023-01-13',18),(19,'2023-01-14',19),(20,'2023-01-14',12),(21,'2023-01-15',18);
+
+-- QUERY database
+with first as (
+SELECT 
+  user_id, 
+  min(date_part('week', log_date)) as first 
+FROM Logs 
+GROUP BY user_id
+),
+
+number as (
+SELECT distinct
+  user_id, 
+  date_part('week', log_date) as login_week 
+FROM Logs 
+),
+
+weeks as (
+SELECT
+	n.user_id,
+    n.login_week,
+    f.first,
+    n.login_week - f.first as week_number
+FROM number as n
+INNER JOIN first as f
+	ON n.user_id = f.user_id
+)
+
+SELECT
+	first,
+    SUM(case when week_number = 0 then 1 else 0 end) as week_0,
+    SUM(case when week_number = 1 then 1 else 0 end) as week_1,
+    SUM(case when week_number = 2 then 1 else 0 end) as week_2,
+    SUM(case when week_number = 3 then 1 else 0 end) as week_3,
+    SUM(case when week_number = 4 then 1 else 0 end) as week_4,
+    SUM(case when week_number = 5 then 1 else 0 end) as week_5,
+    SUM(case when week_number = 6 then 1 else 0 end) as week_6
+FROM weeks
+GROUP BY first
+ORDER BY first
