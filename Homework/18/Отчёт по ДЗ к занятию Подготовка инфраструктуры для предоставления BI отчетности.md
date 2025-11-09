@@ -32,6 +32,7 @@ Superset зависал после завершения инициализаци
 2. Подключил ClickHouse к Superset.
 
 В GUI Superset добавил новое соединение к СУБД:
+
 ![image](./ch-db-settings.png)
 
 <hr>
