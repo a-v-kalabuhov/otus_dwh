@@ -1,0 +1,15 @@
+dwh_airlines_clickhouse:
+  target: dev
+  outputs:
+    dev:
+      type: clickhouse
+      schema: dwh                # база данных в ClickHouse (CLICKHOUSE_DB)
+      host: clickhouse           # имя сервиса из docker-compose
+      port: 8123
+      user: dwh_user
+      password: dwh_pass
+      secure: False              # без HTTPS локально
+      verify: False
+      threads: 4
+      database: dwh
+      driver: http               # зачем? надо сравнить с прошлым опытом 

@@ -1,0 +1,28 @@
+name: "dwh_airlines"
+version: "1.0.0"
+config-version: 2
+
+profile: "dwh_airlines_clickhouse"
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  dwh_airlines:
+    +materialized: table
+    staging:
+      +schema: "dwh_stage"
+      +materialized: view
+    dds:
+      +schema: "dwh_dds"
+      +materialized: table
+    marts:
+      +schema: "dwh_marts"
+      +materialized: table

@@ -1,0 +1,199 @@
+#version: "3.9"
+
+services:
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "9000:9000"   # S3 API endpoint
+      - "9001:9001"   # Web-консоль MinIO
+    volumes:
+      - minio_data:/data
+    networks:
+      - dwh_net
+
+  postgres_airlines:
+    image: postgres:15
+    container_name: postgres_airlines
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_AIRLINES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_AIRLINES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_AIRLINES_DB}
+    env_file:
+      - .env
+    ports:
+      - "5433:5432"
+    volumes:
+      # данные БД
+      - postgres_airlines_data:/var/lib/postgresql/data
+    networks:
+      - dwh_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_AIRLINES_USER} -d ${POSTGRES_AIRLINES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  postgres_airlines_db_init:
+    image: postgres:15
+    container_name: postgres_airlines_db_init
+    restart: no
+    env_file:
+      - .env
+    depends_on:
+      postgres_airlines:
+        condition: service_healthy
+    command: >
+      bash -c "
+        psql \"postgresql://$POSTGRES_AIRLINES_USER:$POSTGRES_AIRLINES_PASSWORD@postgres_airlines:5432/$POSTGRES_AIRLINES_DB\" -v ON_ERROR_STOP=1 -f /init_airlines.sql;
+        echo 'postgres_airlines init completed';
+      "
+    volumes:
+      - ./postgres/init_airlines.sql:/init_airlines.sql
+    networks:
+      - dwh_net
+
+  postgres_src:
+    image: postgres:15
+    container_name: postgres_src
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_SRC_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_SRC_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_SRC_DB}
+    env_file:
+      - .env
+    ports:
+      - "5434:5432"
+    volumes:
+      # данные БД2
+      - postgres_src_data:/var/lib/postgresql/data
+      # скрипт создания только схемы (без данных)
+      #- ./postgres/init_src_schema.sql:/docker-entrypoint-initdb.d/init_src_schema.sql
+    networks:
+      - dwh_net
+    depends_on:
+      postgres_airlines_db_init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_SRC_USER} -d ${POSTGRES_SRC_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  postgres_src_db_init:
+    image: postgres:15
+    container_name: postgres_src_db_init
+    depends_on:
+      postgres_src:
+        condition: service_healthy
+    env_file:
+      - .env
+    command: >
+      bash -c "
+        psql \"postgresql://$POSTGRES_SRC_USER:$POSTGRES_SRC_PASSWORD@postgres_src:5432/$POSTGRES_SRC_DB\" -v ON_ERROR_STOP=1 -f /init_src_schema.sql;
+        echo 'postgres_src init completed';
+      "
+    volumes:
+      # скрипт создания только схемы (без данных)
+      - ./postgres/init_src_schema.sql:/init_src_schema.sql
+    networks:
+      - dwh_net
+    restart: no
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.1
+    container_name: clickhouse_airlines_dwh
+    restart: unless-stopped
+    depends_on:
+      postgres_src_db_init:
+        condition: service_completed_successfully
+      postgres_src:
+        condition: service_healthy
+    ports:
+      - "8123:8123"   # HTTP-интерфейс (jdbc/http-клиенты, Superset)
+      - "19000:9000"   # Native protocol (clickhouse-client, драйверы)
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      # опционально, чтобы слушал все интерфейсы
+      # CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      # сюда можно положить свои настройки/DDL при необходимости
+      # - ./clickhouse/config.xml:/etc/clickhouse-server/config.d/custom.xml
+      # скрипт инициализации не работает НИКОГДА!!! это какой-то баг в связке докер + клик
+      #- ./clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - dwh_net
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --host localhost --port 9000 -q 'SELECT 1' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  clickhouse_init:
+    image: clickhouse/clickhouse-server:24.1
+    container_name: clickhouse_init
+    restart: no
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    volumes:
+      - ./clickhouse/dwh_init.sql:/init.sql
+    networks:
+      - dwh_net
+    entrypoint: >
+      bash -c "
+        echo 'Waiting for ClickHouse...';
+        until clickhouse-client --host clickhouse_airlines_dwh --port 9000 -u ${CLICKHOUSE_USER} --password ${CLICKHOUSE_PASSWORD} -q 'SELECT 1' >/dev/null 2>&1; do
+          sleep 2;
+        done;
+        echo 'Running init.sql...';
+        clickhouse-client --host clickhouse_airlines_dwh --port 9000 -u ${CLICKHOUSE_USER} --password ${CLICKHOUSE_PASSWORD} --multiquery < /init.sql;
+        echo 'init.sql completed';
+        sleep 5;
+      "
+
+  dbt:
+    image: python:3.11-slim
+    container_name: dbt
+    restart: unless-stopped
+    working_dir: /usr/app
+    volumes:
+      - ./dbt:/usr/app          # твой dbt-проект
+    environment:
+      DBT_PROFILES_DIR: /usr/app
+      # при необходимости сюда же можно пробросить переменные для подключения
+      CLICKHOUSE_HOST: clickhouse_airlines_dwh
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+    command: >
+      sh -c "pip install --no-cache-dir dbt-core dbt-clickhouse && tail -f /dev/null"
+    networks:
+      - dwh_net
+    depends_on:
+      postgres_src:
+        condition: service_healthy
+      clickhouse_init:
+        condition: service_completed_successfully
+
+networks:
+  dwh_net:
+    driver: bridge
+
+volumes:
+  postgres_airlines_data:
+  postgres_src_data:
+  minio_data:
+  clickhouse_data:
